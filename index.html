@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1014">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Church Cam">
+<meta name="robots" content="noindex">
+<title>Church Cam Remote</title>
+<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<!--
+  Church Cam Remote: one phone page for every computer that runs Church Cam (CAM-16, 11 Nov).
+  It only keeps a list of computers on this phone (name + Wi-Fi address) and opens the one you tap.
+  No PINs or passwords here: each computer's own page pairs with its PIN, and controlling Church Cam
+  only works on the church Wi-Fi. This page is served over https so the phone allows the camera.
+-->
+<style>
+  :root {
+    --bg: #0e1014; --panel: #161a21; --panel-2: #1d222b; --line: #2a303b; --text: #e8ebf1; --muted: #8b93a3;
+    --live: #2f7bff; --ok: #3fbf7f; --bad: #e5383b;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+  body { padding: calc(14px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); max-width: 560px; margin: 0 auto; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  h1 { display: flex; align-items: center; gap: 10px; font-size: 20px; margin: 4px 0 4px; }
+  h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 22px 0 8px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .hidden { display: none !important; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .big { width: 100%; padding: 15px; border-radius: 12px; border: none; background: var(--live); color: #fff; font-weight: 700; font-size: 17px; }
+  .ghost { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+  .list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .pc { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+  .pc a { flex: 1; min-width: 0; display: block; padding: 14px; color: inherit; text-decoration: none; }
+  .pc a:active { background: var(--panel-2); }
+  .pc .name { font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pc .addr { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pc .edit { display: flex; gap: 4px; padding: 8px; align-items: center; }
+  .pc .edit button { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); font-size: 14px; }
+  .pc .edit .del { color: var(--bad); }
+  .empty { padding: 18px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
+  .note { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); font-size: 14px; }
+  .note.ok { border-left: 3px solid var(--ok); }
+  .note.bad { border-left: 3px solid var(--bad); }
+  input[type=text], input[type=url] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font-size: 16px; }
+  form { display: flex; flex-direction: column; gap: 8px; }
+  /* scanner */
+  .scan { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column; }
+  .scan video { flex: 1; width: 100%; min-height: 0; object-fit: cover; }
+  .scan .frame { position: absolute; left: 50%; top: 45%; width: min(70vw, 300px); aspect-ratio: 1; transform: translate(-50%, -50%); border: 3px solid rgba(255,255,255,0.85); border-radius: 18px; box-shadow: 0 0 0 100vmax rgba(0,0,0,0.35); pointer-events: none; }
+  .scan .bar { padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); background: #000; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+  .scan .bar button { padding: 14px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; font-weight: 700; }
+  footer { margin-top: 28px; }
+</style>
+</head>
+<body>
+  <h1><img src="icon-180.png" alt="" width="34" height="34" style="border-radius:8px"> Church Cam Remote</h1>
+  <p class="muted small" style="margin:0">One app for every computer with Church Cam. Tap a computer to control it.</p>
+
+  <div id="msg" class="note hidden" role="status" aria-live="polite"></div>
+
+  <h2 id="pcsTitle">Your computers</h2>
+  <ul class="list" id="pcs" aria-labelledby="pcsTitle"></ul>
+  <div class="empty muted hidden" id="empty">No computers yet. Scan the QR code in Church Cam (the phone icon in its top bar).</div>
+  <div class="row" style="margin-top:10px; justify-content:flex-end">
+    <button class="ghost small hidden" id="editBtn" aria-pressed="false">Edit</button>
+  </div>
+
+  <h2>Add a computer</h2>
+  <button class="big" id="scanBtn">📷 Scan QR code</button>
+  <details style="margin-top:12px">
+    <summary class="muted">Type the address instead</summary>
+    <form id="addForm" style="margin-top:10px">
+      <label class="small muted" for="addr">Address shown under the QR code in Church Cam</label>
+      <input type="text" id="addr" placeholder="192.168.1.20:8770" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+      <label class="small muted" for="nm">Name (optional)</label>
+      <input type="text" id="nm" placeholder="Church Mac" autocomplete="off">
+      <button class="ghost" type="submit">Add</button>
+    </form>
+  </details>
+
+  <footer class="muted small">
+    <p>The phone must be on the same Wi-Fi as the computer, and Church Cam's phone remote must be on. The first time on each computer, enter the PIN shown in Church Cam.</p>
+    <p>Add this page to your home screen: Share → Add to Home Screen (iPhone), or ⋮ → Add to Home screen (Android).</p>
+    <p>Only this phone keeps the list. No PINs are kept here.</p>
+  </footer>
+
+  <div class="scan hidden" id="scan" role="dialog" aria-modal="true" aria-label="Scan QR code">
+    <video id="video" playsinline muted></video>
+    <div class="frame" aria-hidden="true"></div>
+    <div class="bar">
+      <span id="scanHint">Point the camera at the QR code in Church Cam.</span>
+      <button id="scanCancel">Cancel</button>
+    </div>
+  </div>
+  <canvas id="canvas" class="hidden"></canvas>
+
+<script src="jsqr.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id)
+  const KEY = 'cc-computers'
+  const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
+  const store = (list) => { try { localStorage.setItem(KEY, JSON.stringify(list)) } catch {} }
+  let editing = false
+
+  // Only Church Cam addresses on a home/church network: http(s), a private IP or a .local name.
+  const isLocalHost = (h) =>
+    /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|169\.254\.)/.test(h) || h.endsWith('.local') || h === 'localhost'
+  const parse = (text) => {
+    let u
+    try { u = new URL(String(text).trim().includes('://') ? String(text).trim() : 'http://' + String(text).trim()) } catch { return null }
+    if (!/^https?:$/.test(u.protocol) || !isLocalHost(u.hostname)) return null
+    const name = (u.searchParams.get('name') || '').trim().slice(0, 60)
+    return { url: u.origin + '/', name }
+  }
+
+  const say = (text, kind = 'ok') => {
+    const m = $('msg')
+    m.textContent = text
+    m.className = 'note ' + kind
+    clearTimeout(say.t)
+    say.t = setTimeout(() => m.classList.add('hidden'), 6000)
+  }
+
+  /** Save a computer. Same name → new address (the Wi-Fi can give it a new one); same address → new name. */
+  const add = (pc) => {
+    const list = load()
+    const name = pc.name || 'Church Cam (' + new URL(pc.url).hostname + ')'
+    const i = list.findIndex((x) => (pc.name && x.name === pc.name) || x.url === pc.url)
+    const entry = { name, url: pc.url, used: Date.now() }
+    if (i >= 0) list[i] = { ...list[i], ...entry, name: pc.name || list[i].name }
+    else list.push(entry)
+    // Two entries can end up with one address after a change: keep one.
+    const seen = new Set()
+    store(list.filter((x) => (seen.has(x.url) ? false : seen.add(x.url))))
+    render()
+    return name
+  }
+
+  const open = (pc) => {
+    const list = load().map((x) => (x.url === pc.url ? { ...x, used: Date.now() } : x))
+    store(list)
+    location.href = pc.url
+  }
+
+  function render() {
+    const list = load().sort((a, b) => (b.used || 0) - (a.used || 0))
+    const ul = $('pcs')
+    ul.textContent = ''
+    $('empty').classList.toggle('hidden', list.length > 0)
+    $('editBtn').classList.toggle('hidden', list.length === 0)
+    if (!list.length) editing = false
+    $('editBtn').textContent = editing ? 'Done' : 'Edit'
+    $('editBtn').setAttribute('aria-pressed', String(editing))
+    for (const pc of list) {
+      const li = document.createElement('li')
+      li.className = 'pc'
+      const a = document.createElement('a')
+      a.href = pc.url
+      a.onclick = (e) => { e.preventDefault(); if (!editing) open(pc) }
+      const n = document.createElement('div'); n.className = 'name'; n.textContent = pc.name
+      const d = document.createElement('div'); d.className = 'addr'; d.textContent = pc.url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+      a.append(n, d)
+      li.append(a)
+      if (editing) {
+        const ed = document.createElement('div'); ed.className = 'edit'
+        const rn = document.createElement('button'); rn.textContent = 'Rename'; rn.setAttribute('aria-label', 'Rename ' + pc.name)
+        rn.onclick = () => {
+          const v = prompt('Name for this computer', pc.name)
+          if (v && v.trim()) { store(load().map((x) => (x.url === pc.url ? { ...x, name: v.trim().slice(0, 60) } : x))); render() }
+        }
+        const del = document.createElement('button'); del.className = 'del'; del.textContent = 'Remove'; del.setAttribute('aria-label', 'Remove ' + pc.name)
+        del.onclick = () => { store(load().filter((x) => x.url !== pc.url)); say(pc.name + ' removed.'); render() }
+        ed.append(rn, del)
+        li.append(ed)
+      }
+      ul.append(li)
+    }
+  }
+  $('editBtn').onclick = () => { editing = !editing; render() }
+
+  $('addForm').onsubmit = (e) => {
+    e.preventDefault()
+    const pc = parse($('addr').value)
+    if (!pc) return say('That doesn\'t look like a Church Cam address. It looks like http://192.168.1.20:8770', 'bad')
+    if ($('nm').value.trim()) pc.name = $('nm').value.trim().slice(0, 60)
+    say(add(pc) + ' added. Tap it to open.')
+    $('addr').value = ''; $('nm').value = ''
+  }
+
+  // ----- QR scanner -----
+  const decoder = (() => {
+    const lib = window.jsQRmod ? (window.jsQRmod.default || window.jsQRmod) : window.jsQR
+    return typeof lib === 'function' ? lib : null
+  })()
+  let stream = null, raf = 0, detector = null
+  const stopScan = () => {
+    cancelAnimationFrame(raf)
+    if (stream) stream.getTracks().forEach((t) => t.stop())
+    stream = null
+    $('video').srcObject = null
+    $('scan').classList.add('hidden')
+  }
+  $('scanCancel').onclick = stopScan
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') stopScan() })
+
+  const found = (text) => {
+    const pc = parse(text)
+    if (!pc) { $('scanHint').textContent = 'That QR code isn\'t from Church Cam. Use the one behind the phone icon in Church Cam.'; return false }
+    stopScan()
+    if (!pc.name) {
+      const v = prompt('Name for this computer (e.g. Church Mac)', '')
+      if (v && v.trim()) pc.name = v.trim().slice(0, 60)
+    }
+    const name = add(pc)
+    if (navigator.vibrate) navigator.vibrate(40)
+    say(name + ' added. Opening…')
+    setTimeout(() => open(load().find((x) => x.url === pc.url) || pc), 600)
+    return true
+  }
+
+  $('scanBtn').onclick = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return say('This browser can\'t use the camera. Type the address instead.', 'bad')
+    if ('BarcodeDetector' in window) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }) } catch { detector = null } }
+    if (!detector && !decoder) return say('QR scanning isn\'t available here. Type the address instead.', 'bad')
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false })
+    } catch (err) {
+      return say('No camera: allow the camera for this page, or type the address instead.', 'bad')
+    }
+    $('scanHint').textContent = 'Point the camera at the QR code in Church Cam.'
+    $('scan').classList.remove('hidden')
+    const v = $('video')
+    v.srcObject = stream
+    await v.play().catch(() => {})
+    const c = $('canvas'), ctx = c.getContext('2d', { willReadFrequently: true })
+    let busy = false
+    const tick = async () => {
+      if (!stream) return
+      if (!busy && v.readyState >= 2 && v.videoWidth) {
+        busy = true
+        try {
+          let text = null
+          if (detector) {
+            const codes = await detector.detect(v)
+            text = codes[0] && codes[0].rawValue
+          } else {
+            const s = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight))
+            c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s)
+            ctx.drawImage(v, 0, 0, c.width, c.height)
+            const img = ctx.getImageData(0, 0, c.width, c.height)
+            const r = decoder(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' })
+            text = r && r.data
+          }
+          if (text && found(text)) return
+        } catch {}
+        busy = false
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+  }
+
+  // The link in Church Cam's "confirm your email" message lands here (11 Nov). The login it carries
+  // is not kept: the account is used in Church Cam, so it's cleared from the address straight away.
+  const h = new URLSearchParams(location.hash.slice(1))
+  if (h.get('error_description')) {
+    history.replaceState(null, '', location.pathname)
+    say('That link didn\'t work: ' + h.get('error_description') + '. In Church Cam, try creating the account again.', 'bad')
+  } else if (h.get('access_token') || h.get('type') === 'signup' || new URLSearchParams(location.search).get('confirmed')) {
+    history.replaceState(null, '', location.pathname)
+    say('Email confirmed. Go back to Church Cam on the Mac and sign in (Church Cam → Account & Sync…).')
+    clearTimeout(say.t)
+  }
+  // A computer's phone page sends you here with "All computers": #add=<address>&name=<name>.
+  if (h.get('add')) {
+    const pc = parse(h.get('add'))
+    if (pc) {
+      if (h.get('name')) pc.name = h.get('name').trim().slice(0, 60)
+      add(pc)
+    }
+    history.replaceState(null, '', location.pathname)
+  }
+  render()
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {})
+})()
+</script>
+</body>
+</html>
