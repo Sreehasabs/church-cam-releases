@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1014">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Chords">
+<meta name="robots" content="noindex">
+<title>Church Cam Chords</title>
+<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="music.webmanifest">
+<!--
+  Church Cam Chords (CAM-32, 20 Nov): the permanent link for musicians. The Musicians QR code in
+  Church Cam opens this page once; it remembers that computer (name and Wi-Fi address) on this
+  phone, and from then on opening this page (or its home-screen icon) goes straight to the chords on
+  the church Wi-Fi. Nothing goes through the internet: the chords come from the computer itself.
+  The QR code's join key is passed on once (the computer's chords page joins with it and keeps the
+  phone's own pass) and then dropped here, so a phone removed in Church Cam stays out until it
+  scans the QR code again (20 Nov 2026).
+-->
+<style>
+  :root {
+    --bg: #0e1014; --panel: #161a21; --panel-2: #1d222b; --line: #2a303b; --text: #e8ebf1; --muted: #8b93a3;
+    --live: #2f7bff; --chord: #ffb547; --bad: #e5383b;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+  body { padding: calc(14px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); max-width: 560px; margin: 0 auto; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  h1 { display: flex; align-items: center; gap: 10px; font-size: 20px; margin: 4px 0 4px; }
+  h1 span { color: var(--chord); }
+  h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 22px 0 8px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .hidden { display: none !important; }
+  .list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .pc { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+  .pc a { flex: 1; min-width: 0; display: block; padding: 14px; color: inherit; text-decoration: none; }
+  .pc a:active { background: var(--panel-2); }
+  .pc .name { font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pc .addr { font-size: 13px; color: var(--muted); }
+  .pc .del { border: 0; border-left: 1px solid var(--line); background: var(--panel-2); color: var(--bad); padding: 0 14px; font-size: 14px; }
+  .empty { padding: 18px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
+  .note { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); font-size: 14px; border-left: 3px solid var(--live); }
+  ol { padding-left: 20px; margin: 6px 0; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+  <h1><img src="icon-180.png" alt="" width="34" height="34" style="border-radius:8px"> Church Cam <span>Chords</span></h1>
+  <p class="muted small" style="margin:0">The chords of the song on screen, on your phone or tablet. View-only.</p>
+
+  <div id="msg" class="note hidden" role="status" aria-live="polite"></div>
+
+  <h2>Your church computers</h2>
+  <ul class="list" id="list"></ul>
+  <div class="empty muted" id="empty">
+    No computer yet. In Church Cam, open the phone remote panel and scan the <b>Musicians</b> QR code with this phone's camera.
+  </div>
+
+  <h2>How it works</h2>
+  <ol class="muted small">
+    <li>Scan the Musicians QR code in Church Cam once.</li>
+    <li>Add this page to your home screen (Share → Add to Home Screen) for a <b>Chords</b> icon.</li>
+    <li>Next time, just open it on the church Wi-Fi: the chords open by themselves.</li>
+  </ol>
+  <p class="muted small">If the chords don't open, the computer may have a new Wi-Fi address: scan the Musicians QR code again.</p>
+
+  <script>
+    const KEY = 'cc-music-computers'
+    const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
+    const store = (list) => { try { localStorage.setItem(KEY, JSON.stringify(list)) } catch {} }
+    const $ = (id) => document.getElementById(id)
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+    const say = (text) => { $('msg').textContent = text; $('msg').classList.toggle('hidden', !text) }
+
+    /** Only a Church Cam address on the local network, e.g. http://192.168.1.20:8770 */
+    function cleanUrl(text) {
+      let u
+      try { u = new URL(String(text)) } catch { return null }
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+      return `${u.protocol}//${u.host}`
+    }
+    const chordsUrl = (pc) => `${pc.url}/music` + (pc.key ? `#key=${encodeURIComponent(pc.key)}` : '')
+    const open = (pc) => {
+      try { sessionStorage.setItem('cc-music-opened', String(Date.now())) } catch {}
+      say(`Opening ${pc.name}…`)
+      const href = chordsUrl(pc)
+      // The join key goes along this once only (see the note at the top).
+      if (pc.key) store(load().map((x) => (x.url === pc.url ? { url: x.url, name: x.name } : x)))
+      location.href = href
+    }
+    // Back here within a minute of opening: it didn't load (not on the church Wi-Fi, or a new address).
+    const justTried = () => { try { return Date.now() - Number(sessionStorage.getItem('cc-music-opened') || 0) < 60_000 } catch { return false } }
+
+    function render() {
+      const list = load()
+      $('empty').classList.toggle('hidden', list.length > 0)
+      $('list').innerHTML = list
+        .map((pc, i) => `<li class="pc"><a href="${esc(chordsUrl(pc))}" data-i="${i}"><div class="name">${esc(pc.name)}</div><div class="addr">${esc(pc.url.replace(/^https?:\/\//, ''))}</div></a><button class="del" data-del="${i}" aria-label="Remove ${esc(pc.name)}">Remove</button></li>`)
+        .join('')
+      for (const a of $('list').querySelectorAll('a')) a.onclick = (e) => { e.preventDefault(); open(load()[Number(a.dataset.i)]) }
+      for (const b of $('list').querySelectorAll('[data-del]')) b.onclick = () => { const l = load(); l.splice(Number(b.dataset.del), 1); store(l); render() }
+    }
+
+    // From the Musicians QR code: #add=<address>&key=<musicians key>&name=<computer name>
+    const h = new URLSearchParams(location.hash.slice(1))
+    const added = h.get('add') && h.get('key') ? { url: cleanUrl(h.get('add')), key: h.get('key'), name: (h.get('name') || 'Church Cam').slice(0, 60) } : null
+    history.replaceState(null, '', location.pathname + location.search)
+    if (added && added.url) {
+      // The same computer (by name) replaces its old entry: its address or key may have changed.
+      const list = load().filter((pc) => pc.name !== added.name && pc.url !== added.url)
+      store([added, ...list])
+      render()
+      setTimeout(() => open(added), 400)
+    } else {
+      render()
+      const list = load()
+      // One computer: go straight to its chords (?list shows the list instead). Not again right after a
+      // try that came back here, so a phone off the church Wi-Fi doesn't bounce in a loop.
+      if (justTried()) say("Couldn't open the chords. Check this phone is on the church Wi-Fi; if it is, scan the Musicians QR code in Church Cam again (the computer may have a new address).")
+      else if (list.length === 1 && !new URLSearchParams(location.search).has('list')) open(list[0])
+    }
+
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {})
+  </script>
+</body>
+</html>
